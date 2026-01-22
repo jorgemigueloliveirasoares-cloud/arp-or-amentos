@@ -1,19 +1,29 @@
 import streamlit as st
+import streamlit as st
 import pandas as pd
 import os
 import io
 import json
 from datetime import date
 
-# Bibliotecas para PDF
+# Importações para PDF
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-# 1. CONFIGURAÇÃO INICIAL
-st.set_page_config(page_title="Orçamentador Pro", layout="wide")
+# 1. CONFIGURAÇÃO DA PÁGINA (Layout Estilo App)
+st.set_page_config(page_title="Gestão de Lead - Orçamentador", layout="wide")
+
+# CSS para simular interface de sistema (Cores e Bordas)
+st.markdown("""
+    <style>
+    .main { background-color: #f5f7f9; }
+    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #004a99; color: white; }
+    .block-container { padding-top: 2rem; }
+    </style>
+    """, unsafe_allow_html=True)
 
 @st.cache_data
 def carregar_base():
@@ -25,7 +35,6 @@ def carregar_base():
             col_preco = "VALORES ATUAIS JANEIRO 2025"
             df = df[["CÓDIGO", "DESCRIÇÃO", "UNID", col_preco]].dropna(subset=["CÓDIGO"])
             df.rename(columns={col_preco: "Preço Unitário"}, inplace=True)
-            df["CÓDIGO"] = df["CÓDIGO"].astype(str).str.strip()
             return df
         except: pass
     return pd.DataFrame(columns=["CÓDIGO", "DESCRIÇÃO", "UNID", "Preço Unitário"])
@@ -33,141 +42,131 @@ def carregar_base():
 if "itens_orcamento" not in st.session_state:
     st.session_state.itens_orcamento = pd.DataFrame(columns=["CÓDIGO", "Artigo", "UNID", "Preço Unitário", "Quantidade"])
 
-# 2. CABEÇALHO E DADOS DO CLIENTE
-col_log, col_cli, col_rasc = st.columns([1.2, 2.5, 1.2])
-
-with col_log:
-    if os.path.exists("logo.png"): st.image("logo.png", width=180)
-
-with col_cli:
-    st.subheader("📋 Dados do Cliente- O Alexandre é gay")
-    nome_cli = st.text_input("Nome do Cliente", key="nome_cli")
-    morada_cli = st.text_input("Morada", key="morada_cli")
-    c1, c2 = st.columns(2)
-    tel_cli = c1.text_input("Telefone", key="tel_cli")
-    email_cli = c2.text_input("Email do Cliente", key="email_cli")
-    obs_cli = st.text_area("Notas / Observações", key="obs_cli")
-
-with col_rasc:
-    st.subheader("💾 Backup / Rascunho")
-    n_orc = st.text_input("Nº Orçamento", value=f"ORC-{date.today().year}-001")
+# --- BARRA LATERAL (MENU DE NAVEGAÇÃO / BACKUP) ---
+with st.sidebar:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", use_container_width=True)
+    st.title("Menu de Ações")
     
-    # Gerar ficheiro de Backup (JSON)
-    dados_backup = {
-        "cliente": {"nome": nome_cli, "morada": morada_cli, "tel": tel_cli, "email": email_cli, "obs": obs_cli, "n_orc": n_orc},
-        "itens": st.session_state.itens_orcamento.to_dict(orient="records")
-    }
-    st.download_button("📥 Guardar Backup", data=json.dumps(dados_backup), file_name=f"backup_{n_orc}.json", use_container_width=True)
+    st.info(f"📅 Data: {date.today().strftime('%d/%m/%Y')}")
     
-    # Upload de Backup
-    u_backup = st.file_uploader("📂 Upload de Backup", type="json", label_visibility="collapsed")
+    st.subheader("📁 Backup do Serviço")
+    u_backup = st.file_uploader("Carregar JSON", type="json")
     if u_backup:
         carregados = json.load(u_backup)
         st.session_state.itens_orcamento = pd.DataFrame(carregados["itens"])
         st.success("Dados carregados!")
 
+# --- CORPO PRINCIPAL (ESTRUTURA TIPO LEADS/APURAMENTOS) ---
+
+# Título de Lead (Exemplo de ID dinâmico)
+st.title("📑 Detalhes do Serviço / Apuramentos")
+st.caption("Lead ID: 53688 | Serviço: 79385")
+
+# LINHA 1: DADOS DA LEAD (COLUNAS)
+with st.expander("👤 Informação do Cliente / Sinistro", expanded=True):
+    c1, c2, c3 = st.columns(3)
+    nome_cli = c1.text_input("Nome do Segurado", key="nome")
+    tel_cli = c2.text_input("Contacto Telefónico", key="tel")
+    email_cli = c3.text_input("Email", key="email")
+    
+    morada_cli = st.text_input("Local da Intervenção", key="morada")
+    n_orc = st.text_input("Nº Processo Interno", value="PRO-2025-001")
+
+# LINHA 2: ADIÇÃO DE ARTIGOS (APURAMENTOS)
 st.divider()
+st.subheader("🛠️ Apuramento de Custos")
+tab_pesquisa, tab_manual = st.tabs(["🔎 Catálogo de Preços", "➕ Item Extraordinário"])
 
-# 3. ADIÇÃO DE ITENS
-st.subheader("🔍 1. Adicionar Itens")
-tab1, tab2 = st.tabs(["🔎 Pesquisar Excel", "➕ Manual"])
-
-with tab1:
-    termo = st.text_input("Pesquisar:", key="search").strip()
+with tab_pesquisa:
+    termo = st.text_input("Pesquisar na Tabela Ageas/CIMP:", placeholder="Ex: Vidro, Canalizador, Mão de Obra...")
     if termo:
         base = carregar_base()
-        res = base[(base["DESCRIÇÃO"].str.contains(termo, case=False)) | (base["CÓDIGO"].str.contains(termo, case=False))].head(10)
+        res = base[(base["DESCRIÇÃO"].str.contains(termo, case=False)) | (base["CÓDIGO"].str.contains(termo, case=False))].head(8)
         for i, row in res.iterrows():
-            c1, c2, c3, c4, c5 = st.columns([1, 4, 1, 1, 0.5])
-            c1.write(row["CÓDIGO"])
-            c2.write(row["DESCRIÇÃO"])
-            c3.write(f"{row['Preço Unitário']:.2f}€")
-            qtd_in = c4.text_input("Qtd", key=f"q_{row['CÓDIGO']}", label_visibility="collapsed")
-            if c5.button("➕", key=f"b_{row['CÓDIGO']}"):
-                if qtd_in:
+            col1, col2, col3, col4, col5 = st.columns([1, 4, 1, 1, 0.5])
+            col1.write(f"**{row['CÓDIGO']}**")
+            col2.write(row["DESCRIÇÃO"])
+            col3.write(f"{row['Preço Unitário']:.2f}€")
+            q_val = col4.text_input("Qtd", key=f"q_{row['CÓDIGO']}", label_visibility="collapsed")
+            if col5.button("➕", key=f"b_{row['CÓDIGO']}"):
+                if q_val:
                     try:
-                        v = float(qtd_in.replace(',', '.'))
+                        v = float(q_val.replace(',', '.'))
                         novo = pd.DataFrame([{"CÓDIGO": row["CÓDIGO"], "Artigo": row["DESCRIÇÃO"], "UNID": row["UNID"], "Preço Unitário": row["Preço Unitário"], "Quantidade": v}])
                         st.session_state.itens_orcamento = pd.concat([st.session_state.itens_orcamento, novo], ignore_index=True)
                         st.rerun()
                     except: st.error("Qtd inválida")
 
-with tab2:
+with tab_manual:
     m1, m2, m3, m4 = st.columns([3, 1, 1, 1])
-    m_desc = m1.text_input("Descrição Manual")
-    m_prec = m2.number_input("Preço €", min_value=0.0)
-    m_qtd = m3.number_input("Qtd", min_value=0.0)
-    if m4.button("Adicionar"):
+    m_desc = m1.text_input("Descrição da Reparação")
+    m_prec = m2.number_input("Preço Acordado €", min_value=0.0)
+    m_qtd = m3.number_input("Qtd.", min_value=0.0)
+    if m4.button("Adicionar Linha"):
         if m_desc and m_qtd > 0:
-            nm = pd.DataFrame([{"CÓDIGO": "EXTRA", "Artigo": m_desc, "UNID": "un", "Preço Unitário": m_prec, "Quantidade": m_qtd}])
+            nm = pd.DataFrame([{"CÓDIGO": "MANUAL", "Artigo": m_desc, "UNID": "un", "Preço Unitário": m_prec, "Quantidade": m_qtd}])
             st.session_state.itens_orcamento = pd.concat([st.session_state.itens_orcamento, nm], ignore_index=True)
             st.rerun()
 
-# 4. TABELA FINAL E EXPORTAÇÕES
+# LINHA 3: TABELA DE RESUMO E TOTAIS
 st.divider()
 if not st.session_state.itens_orcamento.empty:
+    st.subheader("📋 Resumo do Orçamento")
     df_final = st.session_state.itens_orcamento.copy()
     df_final["Subtotal"] = df_final["Quantidade"] * df_final["Preço Unitário"]
+    
     st.data_editor(df_final, use_container_width=True, hide_index=True)
+    
     total_val = df_final["Subtotal"].sum()
-    st.write(f"### Total: {total_val:,.2f}€")
+    
+    col_t1, col_t2 = st.columns([3, 1])
+    obs_cli = col_t1.text_area("Observações Técnicas / Notas de Reparação")
+    col_t2.metric("Total Orçado", f"{total_val:,.2f} €")
 
-    # FUNÇÃO PDF SEM O CÓDIGO DO ARTIGO
-    def criar_pdf(df, total):
+    # BOTÕES DE AÇÃO (EXPORTAÇÃO)
+    st.divider()
+    b1, b2, b3, b4 = st.columns(4)
+    
+    # Função PDF (Limpa sem código do artigo)
+    def criar_pdf_lead(df, total):
         buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=20)
+        doc = SimpleDocTemplate(buf, pagesize=A4)
         sty = getSampleStyleSheet()
         elems = []
-        
         if os.path.exists("logo.png"):
-            img = RLImage("logo.png", width=1.5*inch, height=0.8*inch)
+            img = RLImage("logo.png", width=1.5*inch, height=0.6*inch)
             img.hAlign = 'LEFT'
             elems.append(img)
-            
-        elems.append(Paragraph(f"ORÇAMENTO: {n_orc}", sty['Title']))
-        elems.append(Spacer(1, 10))
-        
-        # Dados do Cliente no PDF
-        cli_info = f"<b>Cliente:</b> {nome_cli}<br/><b>Morada:</b> {morada_cli}<br/><b>Tel:</b> {tel_cli}<br/><b>Email:</b> {email_cli}"
-        elems.append(Paragraph(cli_info, sty['Normal']))
-        elems.append(Spacer(1, 20))
-        
-        # Tabela (Removido o Código do Artigo)
-        data = [["Artigo / Descrição", "Qtd", "Unid", "Preço Unit.", "Total"]]
+        elems.append(Paragraph(f"<b>ORÇAMENTO DE REPARAÇÃO - {n_orc}</b>", sty['Title']))
+        elems.append(Paragraph(f"<b>Cliente:</b> {nome_cli}<br/><b>Local:</b> {morada_cli}<br/><b>Tel:</b> {tel_cli}", sty['Normal']))
+        elems.append(Spacer(1, 15))
+        data = [["Artigo / Descrição", "Qtd", "Un", "Preço", "Total"]]
         for _, r in df.iterrows():
-            data.append([r['Artigo'][:65], r['Quantidade'], r['UNID'], f"{r['Preço Unitário']:.2f}€", f"{r['Subtotal']:.2f}€"])
-        
+            data.append([r['Artigo'][:60], r['Quantidade'], r['UNID'], f"{r['Preço Unitário']:.2f}€", f"{r['Subtotal']:.2f}€"])
         data.append(["", "", "", "TOTAL:", f"{total:,.2f}€"])
-        
         t = Table(data, colWidths=[280, 40, 40, 70, 70])
-        t.setStyle(TableStyle([
-            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
-            ('BACKGROUND', (0,-1), (-1,-1), colors.lightgrey),
-            ('ALIGN', (1,0), (-1,-1), 'CENTER'),
-        ]))
+        t.setStyle(TableStyle([('GRID', (0,0), (-1,-1), 0.5, colors.grey), ('BACKGROUND', (0,0), (-1,0), colors.whitesmoke), ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold')]))
         elems.append(t)
-        
-        if obs_cli:
-            elems.append(Spacer(1, 20))
-            elems.append(Paragraph(f"<b>Observações:</b><br/>{obs_cli}", sty['Normal']))
-            
         doc.build(elems)
         return buf.getvalue()
 
-    c_pdf, c_xls, c_limp = st.columns(3)
+    with b1:
+        st.download_button("📂 Gerar PDF para Cliente", data=criar_pdf_lead(df_final, total_val), file_name=f"Orcamento_{n_orc}.pdf")
     
-    # Botão PDF
-    c_pdf.download_button("📥 Baixar PDF", data=criar_pdf(df_final, total_val), file_name=f"{n_orc}.pdf", use_container_width=True)
-    
-    # Botão Excel
-    buf_x = io.BytesIO()
-    with pd.ExcelWriter(buf_x, engine='xlsxwriter') as wr:
-        df_final.to_excel(wr, index=False)
-    c_xls.download_button("📊 Baixar Excel", data=buf_x.getvalue(), file_name=f"{n_orc}.xlsx", use_container_width=True)
+    with b2:
+        buf_x = io.BytesIO()
+        with pd.ExcelWriter(buf_x, engine='xlsxwriter') as wr:
+            df_final.to_excel(wr, index=False)
+        st.download_button("📊 Exportar Excel (CIMP)", data=buf_x.getvalue(), file_name=f"Lead_{n_orc}.xlsx")
 
-    if c_limp.button("🗑️ Limpar Tudo", use_container_width=True):
-        st.session_state.itens_orcamento = pd.DataFrame(columns=["CÓDIGO", "Artigo", "UNID", "Preço Unitário", "Quantidade"])
-        st.rerun()
+    with b3:
+        # Guardar Rascunho
+        dados_backup = {"cliente": {"nome": nome_cli, "obs": obs_cli}, "itens": st.session_state.itens_orcamento.to_dict(orient="records")}
+        st.download_button("💾 Guardar Backup JSON", data=json.dumps(dados_backup), file_name=f"backup_{n_orc}.json")
+    
+    with b4:
+        if st.button("🗑️ Limpar Lead"):
+            st.session_state.itens_orcamento = pd.DataFrame(columns=["CÓDIGO", "Artigo", "UNID", "Preço Unitário", "Quantidade"])
+            st.rerun()
+            
